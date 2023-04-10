@@ -17,42 +17,33 @@ class Connector:
     def __repr__(self):
         return f"S3 connector for {self.user}. Configured for {self.type} files"
     
-    
-    def create_s3_url(self, bucket, env, table, partition, protected):
-        url = 's3a://cars-data-lake'
-        if bucket.lower() == 'core':
-            if env.lower() == 'prod':
-                if protected:
-                    url += f'-core-protected/{table}/filedate={partition}'
-                else:
-                    url += f'-core/{table}/filedate={partition}'
-            else:
-                url += f'-core-{env.lower()}/{table}/filedate={partition}'
-            return url
-        else:
-            if env.lower() == 'prod':
-                url += f'-{bucket}/{self.user}@cars.com/{table}/filedate={partition}'
-            else:
-                url += f'-{bucket}-{env.lower()}/{self.user}@cars.com/{table}/filedate={partition}'
-            return url
+    # create full s3 url with given arguments
+    def create_s3_url(self, bucket, env, table, date, protected):
+        url = self.create_s3_basepath(bucket, env, table, protected)
+        url += f'/filedate={date}'
+        return url
 
+    # create a basepath to a s3 table with the given arguments
     def create_s3_basepath(self, bucket, env, table, protected):
         url = f's3a://cars-data-lake'
         if bucket.lower() == 'core':
             if env.lower() == 'prod':
                 if protected:
-                    url += f'-core-protected/{table}'
+                    url += f'-core-protected/{table.lower()}'
                 else:
-                    url += f'-core/{table}'
+                    url += f'-core/{table.lower()}'
             else:
-                url += f'-core-{env.lower()}/{table}'
+                url += f'-core-{env.lower()}/{table.lower()}'
         else:
             if env.lower() == 'prod':
-                url += f'-{bucket}/{self.user}@cars.com/{table}'
+                url += f'-{bucket.lower()}/{self.user}@cars.com/{table.lower()}'
+            else:
+                url += f'-{bucket.lower()}-{env.lower()}/{self.user}@cars.com/{table.lower()}'
         return url
 
-    def read_single_partition_s3(self, bucket, env, table, partition, protected):
-        url = self.create_s3_url(bucket, env, table, partition, protected)
+    # read a single s3 partition to a df from s3 
+    def read_single_partition_s3(self, bucket, env, table, date, protected):
+        url = self.create_s3_url(bucket, env, table, date, protected)
         if self.type == 'parquet':
             df = spark.read.parquet(url)
             return df
@@ -60,9 +51,10 @@ class Connector:
             df = spark.read.csv(url)
             return df 
 
-    def read_multiple_partitions_s3(self, bucket, env, table, partition, _range, cols, protected):
+    # read a range of date partitions from s3 to a df
+    def read_multiple_partitions_s3(self, bucket, env, table, date, _range, cols, protected):
         urls = []
-        start = datetime.strptime(partition, "%Y-%m-%d")
+        start = datetime.strptime(date, "%Y-%m-%d")
         for _ in range(_range):
             url = self.create_s3_url(bucket, env, table, start, protected)
             urls.append(url)
@@ -74,14 +66,16 @@ class Connector:
             df = spark.read.option('basePath', path).option("mergeSchema", "true").load(urls)
         return df
 
-    def read_from_s3(self, bucket, env, table, partition, _range=1, cols=[], protected=False):
+    # parent function for reading from s3 - accepts optional arguments for range (multiple dates), cols (specific cols for partitions), and protected (bucket)
+    def read_from_s3(self, bucket, env, table, date, _range=1, cols=[], protected=False):
         if range == 1:
-            return self.read_single_partition_s3(bucket, env, table, partition, protected)
+            return self.read_single_partition_s3(bucket, env, table, date, protected)
         else:
-            return self.read_multiple_partitions_s3(bucket, env, table, partition, _range, cols, protected)
+            return self.read_multiple_partitions_s3(bucket, env, table, date, _range, cols, protected)
 
-    def write_to_s3(self, df, bucket, env, table, partition, partitions=1):
-        url = self.create_s3_url(bucket, env, table, partition)
+    # write a df to s3 (landing), optional argument for number of partitions 
+    def write_to_s3(self, df, bucket, env, table, date, partitions=1):
+        url = self.create_s3_url(bucket, env, table, date)
         if self.type == 'parquet':
             df.repartition(partitions).write.parquet(url, mode='overwrite')
         else:
