@@ -9,7 +9,7 @@ class Connector:
             return "please choose a 'dw' or 'ml' user"
                 
     def __repr__(self):
-        return f"S3 connector for {self.user}. Configured for {self.type} files"
+        return f"S3 connector for {self.user}"
     
     # create full s3 url with given arguments
     def create_s3_url(self, bucket, env, dataset, date, protected):
